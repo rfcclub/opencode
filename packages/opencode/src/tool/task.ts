@@ -7,6 +7,7 @@ import { SessionID, MessageID } from "../session/schema"
 import { MessageV2 } from "../session/message-v2"
 import { Agent } from "../agent/agent"
 import { deriveSubagentSessionPermission } from "../agent/subagent-permissions"
+import { Permission } from "../permission"
 import type { SessionPrompt } from "../session/prompt"
 import { Config } from "@/config/config"
 import { Cause, Effect, Exit, Schema, Scope } from "effect"
@@ -20,6 +21,18 @@ export interface TaskPromptOps {
 }
 
 const id = "task"
+
+const TaskMetadata = Schema.Struct({
+  parentSessionId: Schema.String,
+  sessionId: Schema.String,
+  model: Schema.Struct({
+    modelID: Schema.String,
+    providerID: Schema.String,
+  }),
+  background: Schema.optional(Schema.Boolean),
+  jobId: Schema.optional(Schema.String),
+})
+
 const BACKGROUND_DESCRIPTION = [
   "",
   "",
@@ -48,6 +61,9 @@ export const Parameters = Schema.Struct({
   ...BaseParameterFields,
   background: Schema.optional(Schema.Boolean).annotate({
     description: "Run the agent in the background. You will be notified when it completes.",
+  }),
+  action: Schema.optional(Schema.Literals(["list", "run"])).annotate({
+    description: 'Call action="list" to see available agent types, or provide subagent_type directly to launch an agent',
   }),
 })
 
@@ -115,6 +131,22 @@ export const TaskTool = Tool.define(
         )
       }
 
+      const msg = yield* MessageV2.get({ sessionID: ctx.sessionID, messageID: ctx.messageID }).pipe(Effect.orDie)
+      if (msg.info.role !== "assistant") return yield* Effect.fail(new Error("Not an assistant message"))
+
+      if (params.action === "list") {
+        const items = (yield* agent.list()).filter((item) => item.mode !== "primary")
+        const list = items.toSorted((a, b) => a.name.localeCompare(b.name))
+        const catalog = list
+          .map((item) => `- ${item.name}: ${item.description ?? "This subagent should only be called manually by the user."}`)
+          .join("\n")
+        return {
+          title: "Available agent types",
+          metadata: { parentSessionId: ctx.sessionID, sessionId: ctx.sessionID, model: { modelID: msg.info.modelID, providerID: msg.info.providerID }, background: undefined, jobId: undefined },
+          output: ["Available agent types and the tools they have access to:", catalog].join("\n"),
+        }
+      }
+
       if (!ctx.extra?.bypassAgentCheck) {
         yield* ctx.ask({
           permission: id,
@@ -157,9 +189,6 @@ export const TaskTool = Tool.define(
             })) ?? []),
           ],
         }))
-
-      const msg = yield* MessageV2.get({ sessionID: ctx.sessionID, messageID: ctx.messageID }).pipe(Effect.orDie)
-      if (msg.info.role !== "assistant") return yield* Effect.fail(new Error("Not an assistant message"))
 
       const model = next.model ?? {
         modelID: msg.info.modelID,

@@ -9,6 +9,14 @@ import DESCRIPTION from "./skill.txt"
 
 export const Parameters = Schema.Struct({
   name: Schema.String.annotate({ description: "The name of the skill from available_skills" }),
+  action: Schema.optional(Schema.Literals(["list", "load"])).annotate({
+    description: 'Call action="list" to see available skills, or provide name directly to load a skill',
+  }),
+})
+
+const Metadata = Schema.Struct({
+  name: Schema.optional(Schema.String),
+  dir: Schema.optional(Schema.String),
 })
 
 export const SkillTool = Tool.define(
@@ -22,6 +30,24 @@ export const SkillTool = Tool.define(
       parameters: Parameters,
       execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
         Effect.gen(function* () {
+          if (params.action === "list") {
+            const list = yield* skill.available()
+            const catalog = list
+              .map((item) => `  <skill>\n    <name>${item.name}</name>\n    <description>${item.description}</description>\n    <location>${pathToFileURL(item.location).href}</location>\n  </skill>`)
+              .join("\n")
+            return {
+              title: "Available skills",
+              metadata: {} as { name?: string; dir?: string },
+              output: [
+                "Skills provide specialized instructions and workflows for specific tasks.",
+                "Use the skill tool to load a skill when a task matches its description.",
+                "",
+                "Available skills:",
+                catalog,
+              ].join("\n"),
+            }
+          }
+
           const info = yield* skill
             .require(params.name)
             .pipe(Effect.catchTag("Skill.NotFoundError", (error) => Effect.die(new Error(error.message))))
@@ -64,7 +90,7 @@ export const SkillTool = Tool.define(
             metadata: {
               name: info.name,
               dir,
-            },
+            } as { name?: string; dir?: string },
           }
         }).pipe(Effect.orDie),
     }
