@@ -11,6 +11,33 @@ import { Global } from "@opencode-ai/core/global"
 import type { MessageV2 } from "./message-v2"
 import type { MessageID } from "./schema"
 
+const MODAL_PATTERN = /\b(MUST|ALWAYS|NEVER|SHALL|REQUIRED)\b/i
+const ACTION_PATTERN = /\b(Read|Execute|Run|Check|Load|Fetch)\b/i
+const PATH_PATTERN = /(?:\/[\w.-]+)+|[A-Z]:\\[\\\w.-]+|~\/[\w./-]+/
+
+export interface ClassifiedInstructions {
+  declarative: string[]
+  imperative: string[]
+}
+
+export function classify(content: string): ClassifiedInstructions {
+  const declarative: string[] = []
+  const imperative: string[] = []
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("<!--")) continue
+    const hasModal = MODAL_PATTERN.test(trimmed)
+    const hasAction = ACTION_PATTERN.test(trimmed)
+    const hasPath = PATH_PATTERN.test(trimmed)
+    if (hasModal && (hasAction || hasPath)) {
+      imperative.push(line)
+    } else {
+      declarative.push(line)
+    }
+  }
+  return { declarative, imperative }
+}
+
 const files = (disableClaudeCodePrompt: boolean) => [
   "AGENTS.md",
   ...(disableClaudeCodePrompt ? [] : ["CLAUDE.md"]),
@@ -158,13 +185,43 @@ export const layer: Layer.Layer<
         (item) => item.startsWith("https://") || item.startsWith("http://"),
       )
 
-      const files = yield* Effect.forEach(Array.from(paths), read, { concurrency: 8 })
+      const fileContents = yield* Effect.forEach(Array.from(paths), read, { concurrency: 8 })
       const remote = yield* Effect.forEach(urls, fetch, { concurrency: 4 })
 
-      return [
-        ...Array.from(paths).flatMap((item, i) => (files[i] ? [`Instructions from: ${item}\n${files[i]}`] : [])),
-        ...urls.flatMap((item, i) => (remote[i] ? [`Instructions from: ${item}\n${remote[i]}`] : [])),
-      ]
+      const imperative: string[] = []
+      const declarative: string[] = []
+
+      Array.from(paths).forEach((item, i) => {
+        if (!fileContents[i]) return
+        const classified = classify(fileContents[i])
+        if (classified.imperative.length > 0) {
+          const actions = classified.imperative
+            .map((line) => {
+              const pathMatch = line.match(PATH_PATTERN)
+              if (pathMatch) {
+                return `Before any other action, you MUST read: ${pathMatch[0]}`
+              }
+              return line
+            })
+          imperative.push(`<mandatory>\nInstructions from: ${item}\n${actions.join("\n")}\n</mandatory>`)
+        }
+        if (classified.declarative.length > 0) {
+          declarative.push(`Instructions from: ${item}\n${classified.declarative.join("\n")}`)
+        }
+      })
+
+      urls.forEach((item, i) => {
+        if (!remote[i]) return
+        const classified = classify(remote[i])
+        if (classified.imperative.length > 0) {
+          imperative.push(`<mandatory>\nInstructions from: ${item}\n${classified.imperative.join("\n")}\n</mandatory>`)
+        }
+        if (classified.declarative.length > 0) {
+          declarative.push(`Instructions from: ${item}\n${classified.declarative.join("\n")}`)
+        }
+      })
+
+      return [...imperative, ...declarative]
     })
 
     const find = Effect.fn("Instruction.find")(function* (dir: string) {
