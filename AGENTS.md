@@ -122,6 +122,64 @@ const table = sqliteTable("session", {
 })
 ```
 
+## System Prompt Assembly (Architecture Map)
+
+When OpenCode sends a request to the LLM, the system prompt is assembled in this order:
+
+1. **Agent prompt** (`agent.prompt`) or **provider default** (`SystemPrompt.provider(model)`)
+   - If agent has `prompt` field → uses that
+   - Else → picks from `packages/opencode/src/session/prompt/` (default.txt, gpt.txt, anthropic.txt, gemini.txt, etc.)
+   - **This is the identity slot.** If no custom agent, "You are opencode..." goes here.
+
+2. **Instructions** (`instruction.system()`)
+   - Loads AGENTS.md, CLAUDE.md, CONTEXT.md from project dir (globUp)
+   - Loads global config AGENTS.md from `~/.config/opencode/`
+   - Loads `config.instructions` (file paths or URLs)
+   - Each wrapped as `Instructions from: <path>\n<content>`
+
+3. **Environment** (`SystemPrompt.environment()`)
+   - Model name, working directory, git info, platform, date
+
+4. **Skills** (`SystemPrompt.skills()`)
+   - Available skill descriptions
+
+Assembly happens in `packages/opencode/src/session/prompt.ts:~1425`:
+```
+const system = [...env, ...instructions, ...(skills ? [skills] : [])]
+```
+
+Then in `packages/opencode/src/session/llm/request.ts:67-73`, the final system message is:
+```
+system = [agent.prompt || PROVIDER_DEFAULT, ...input.system, ...input.user.system].join("\n")
+```
+
+### Key Files
+
+| File | Purpose |
+|------|----------|
+| `src/session/prompt.ts` | Orchestrates prompt assembly, tool loading, message processing |
+| `src/session/llm/request.ts` | LLMRequestPrep — merges agent prompt + system + user into final messages |
+| `src/session/llm.ts` | LLM service — runtime selection (AI SDK vs native), streaming |
+| `src/session/system.ts` | Provider-specific default prompts + environment + skills |
+| `src/session/instruction.ts` | Loads AGENTS.md/CLAUDE.md/instructions from filesystem |
+| `src/session/prompt/*.txt` | Default system prompts per provider |
+| `src/config/agent.ts` | Agent config schema + loader (`.opencode/agent/*.md`) |
+| `src/agent/agent.ts` | Agent service — list/get/generate agents |
+| `src/config/config.ts` | Config schema (has `instructions` field, `default_agent` field) |
+
+### Custom Agent Config
+
+Create `.opencode/agent/<name>.md` with YAML frontmatter:
+```md
+---
+mode: primary
+temperature: 0.7
+---
+<Custom system prompt here — replaces default.txt>
+```
+
+Set in `.opencode/opencode.jsonc`: `"default_agent": "<name>"`
+
 ## Testing
 
 - Avoid mocks as much as possible
