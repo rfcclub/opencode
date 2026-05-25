@@ -87,7 +87,9 @@ export const layer: Layer.Layer<
     const global = yield* Global.Service
     const flags = yield* RuntimeFlags.Service
     const http = HttpClient.filterStatusOk(withTransientReadRetry(yield* HttpClient.HttpClient))
+    const canonicalGlobalAgents = path.join(global.home, ".config", "opencode", "AGENTS.md")
     const globalFiles = [
+      canonicalGlobalAgents,
       path.join(global.config, "AGENTS.md"),
       ...(!flags.disableClaudeCodePrompt ? [path.join(global.home, ".claude", "CLAUDE.md")] : []),
     ]
