@@ -4,6 +4,7 @@ import { WorkspaceContext } from "@/control-plane/workspace-context"
 import { InstanceRef } from "@/effect/instance-ref"
 import { disposeInstance as runDisposers } from "@/effect/instance-registry"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
+import { Flock } from "@opencode-ai/core/util/flock"
 import { Context, Deferred, Duration, Effect, Exit, Layer, Scope } from "effect"
 import { type InstanceContext } from "./instance-context"
 import { InstanceBootstrap } from "./bootstrap-service"
@@ -41,6 +42,11 @@ export const layer: Layer.Layer<Service, never, Project.Service | InstanceBootst
 
     const boot = (input: LoadInput & { directory: string }) =>
       Effect.gen(function* () {
+        // Serialize concurrent bootstraps on the same directory to prevent
+        // SQLite WAL deadlocks when multiple opencode run instances overlap.
+        yield* Flock.effect(`instance-store:${input.directory}`, { timeoutMs: 30_000 }).pipe(
+          Effect.scoped,
+        )
         const ctx: InstanceContext =
           input.project && input.worktree
             ? {

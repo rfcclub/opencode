@@ -42,6 +42,15 @@ export const WebCommand = effectCmd({
     }
     const opts = yield* resolveNetworkOptions(args)
     const server = yield* Effect.promise(() => Server.listen(opts))
+
+    // Handle graceful shutdown on SIGINT/SIGTERM
+    const shutdown = () => {
+      UI.println(UI.Style.TEXT_WARNING_BOLD + "\n  Shutting down server...")
+      server.stop(true).catch(() => {})
+    }
+    process.on("SIGINT", shutdown)
+    process.on("SIGTERM", shutdown)
+
     UI.empty()
     UI.println(UI.logo("  "))
     UI.empty()

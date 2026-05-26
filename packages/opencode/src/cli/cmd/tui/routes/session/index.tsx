@@ -1449,15 +1449,32 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
 
   const childShortcut = useCommandShortcut("session.child.first")
 
+  // When thinking is collapsed and message has no text parts,
+  // render reasoning parts as text so user can see the response
+  const displayParts = createMemo(() => {
+    if (ctx.thinkingMode() !== "hide") return props.parts
+
+    const hasText = props.parts.some((p) => p.type === "text" && p.text?.trim())
+    if (hasText) return props.parts
+
+    // No text parts - convert reasoning to text for display
+    return props.parts.map((p) => {
+      if (p.type === "reasoning") {
+        return { ...p, type: "text" as const }
+      }
+      return p
+    })
+  })
+
   return (
     <>
-      <For each={props.parts}>
+      <For each={displayParts()}>
         {(part, index) => {
           const component = createMemo(() => PART_MAPPING[part.type as keyof typeof PART_MAPPING])
           return (
             <Show when={component()}>
               <Dynamic
-                last={index() === props.parts.length - 1}
+                last={index() === displayParts().length - 1}
                 component={component()}
                 part={part as any}
                 message={props.message}
