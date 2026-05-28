@@ -238,6 +238,11 @@ export const RunCommand = effectCmd({
         describe: "auto-approve permissions that are not explicitly denied (dangerous!)",
         default: false,
       })
+      .option("auto-approve-safe", {
+        type: "boolean",
+        describe: "auto-approve safe permissions (read, grep, glob, webfetch, websearch, lsp, skill) and ask for dangerous ones (bash, edit, task, todowrite)",
+        default: false,
+      })
       .option("demo", {
         type: "boolean",
         default: false,
@@ -737,7 +742,15 @@ export const RunCommand = effectCmd({
               const permission = event.properties
               if (permission.sessionID !== sessionID) continue
 
+              const SAFE_PERMISSIONS = ["read", "grep", "glob", "webfetch", "websearch", "lsp", "skill"]
+              const isSafePermission = SAFE_PERMISSIONS.includes(permission.permission)
+
               if (args["dangerously-skip-permissions"]) {
+                await client.permission.reply({
+                  requestID: permission.id,
+                  reply: "once",
+                })
+              } else if (args["auto-approve-safe"] && isSafePermission) {
                 await client.permission.reply({
                   requestID: permission.id,
                   reply: "once",
