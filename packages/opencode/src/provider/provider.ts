@@ -32,6 +32,7 @@ import { ProviderError } from "./error"
 
 const log = Log.create({ service: "provider" })
 const OPENAI_HEADER_TIMEOUT_DEFAULT = 10_000
+const OPENAI_CHUNK_TIMEOUT_DEFAULT = 120_000
 function shouldUseCopilotResponsesApi(modelID: string): boolean {
   const match = /^gpt-(\d+)/.exec(modelID)
   if (!match) return false
@@ -204,7 +205,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         async getModel(sdk: any, modelID: string, _options?: Record<string, any>) {
           return sdk.responses(modelID)
         },
-        options: { headerTimeout: OPENAI_HEADER_TIMEOUT_DEFAULT },
+        options: { headerTimeout: OPENAI_HEADER_TIMEOUT_DEFAULT, chunkTimeout: OPENAI_CHUNK_TIMEOUT_DEFAULT },
       }),
     xai: () =>
       Effect.succeed({
